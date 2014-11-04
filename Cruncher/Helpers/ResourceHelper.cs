@@ -72,12 +72,11 @@ namespace Cruncher.Helpers
                         // If it is a relative path then combines the request's path with the resource's path
                         if (!Path.IsPathRooted(resource))
                         {
-                            string path = Path.GetFullPath(Path.Combine(rootPath, resource));
-                            return HostingEnvironment.MapPath(string.Format("~{0}", path));
+                            return Path.GetFullPath(Path.Combine(rootPath, resource));
                         }
 
                         // It is an absolute path
-                        return HostingEnvironment.MapPath(string.Format("~{0}", resource));
+                        return resource;
                     }
                 }
 
