@@ -53,26 +53,21 @@ namespace Cruncher.Web
         }
 
         /// <summary>
-        /// Processes the css request using cruncher and returns the result.
+        /// Enables processing of HTTP Web requests by a custom HttpHandler that implements the <see cref="T:System.Web.IHttpHandler" /> interface.
         /// </summary>
-        /// <param name="path">
-        /// The path to the resources to crunch.
-        /// </param>
-        /// <param name="minify">
-        /// Whether to minify the output.
-        /// </param>
-        /// <returns>
-        /// The <see cref="string"/> representing the processed result.
-        /// </returns>
-        public string ProcessCssCrunch(string path, bool minify)
+        /// <param name="context">An <see cref="T:System.Web.HttpContext" /> object that provides references to the intrinsic server objects (for example, Request, Response, Session, and Server) used to service HTTP requests.</param>
+        public override void ProcessRequest(HttpContext context)
         {
+            HttpRequest request = context.Request;
+            string path = request.QueryString["path"];
             string key = path.ToMd5Fingerprint();
-            string combinedCSS = string.Empty;
+            bool fallback;
+            bool minify = bool.TryParse(request.QueryString["minify"], out fallback);
 
             if (!string.IsNullOrWhiteSpace(path))
             {
                 minify = minify || CruncherConfiguration.Instance.MinifyCSS;
-                combinedCSS = (string)CacheManager.GetItem(key);
+                string combinedCSS = (string)CacheManager.GetItem(key);
 
                 if (string.IsNullOrWhiteSpace(combinedCSS))
                 {
@@ -80,16 +75,17 @@ namespace Cruncher.Web
                     StringBuilder stringBuilder = new StringBuilder();
 
                     CruncherOptions cruncherOptions = new CruncherOptions
-                    {
-                        MinifyCacheKey = path,
-                        Minify = minify,
-                        AllowRemoteFiles = CruncherConfiguration.Instance.AllowRemoteDownloads,
-                        RemoteFileMaxBytes = CruncherConfiguration.Instance.MaxBytes,
-                        RemoteFileTimeout = CruncherConfiguration.Instance.Timeout
-                    };
+                                                          {
+                                                              MinifyCacheKey = path,
+                                                              Minify = minify,
+                                                              AllowRemoteFiles = CruncherConfiguration.Instance.AllowRemoteDownloads,
+                                                              RemoteFileMaxBytes = CruncherConfiguration.Instance.MaxBytes,
+                                                              RemoteFileTimeout = CruncherConfiguration.Instance.Timeout
+                                                          };
 
                     cruncherOptions.CacheFiles = cruncherOptions.Minify;
                     cruncherOptions.CacheLength = cruncherOptions.Minify ? CruncherConfiguration.Instance.MaxCacheDays : 0;
+                    minify = cruncherOptions.Minify;
 
                     this.cssCruncher = new CssCruncher(cruncherOptions);
 
@@ -99,32 +95,19 @@ namespace Cruncher.Web
                         // Local files.
                         if (PreprocessorManager.Instance.AllowedExtensionsRegex.IsMatch(cssFile))
                         {
+                            // Get the path from the server.
+                            // Loop through each possible directory.
                             List<string> files = new List<string>();
 
-                            // Try to get the file by absolute/relative path
-                            if (!ResourceHelper.IsResourceFilenameOnly(cssFile))
+                            foreach (string cssFolder in CruncherConfiguration.Instance.CSSPaths)
                             {
-                                string cssFilePath = ResourceHelper.GetFilePath(cssFile, cruncherOptions.RootFolder);
+                                if (!string.IsNullOrWhiteSpace(cssFolder) && cssFolder.Trim().StartsWith("~/"))
+                                {
+                                    DirectoryInfo directoryInfo = new DirectoryInfo(HttpContext.Current.Server.MapPath(cssFolder));
 
-                                if (File.Exists(cssFilePath))
-                                {
-                                    files.Add(cssFilePath);
-                                }
-                            }
-                            else
-                            {
-                                // Get the path from the server.
-                                // Loop through each possible directory.
-                                foreach (string cssFolder in CruncherConfiguration.Instance.CSSPaths)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(cssFolder) && cssFolder.Trim().StartsWith("~/"))
+                                    if (directoryInfo.Exists)
                                     {
-                                        DirectoryInfo directoryInfo = new DirectoryInfo(HttpContext.Current.Server.MapPath(cssFolder));
-
-                                        if (directoryInfo.Exists)
-                                        {
-                                            files.AddRange(Directory.GetFiles(directoryInfo.FullName, cssFile, SearchOption.AllDirectories));
-                                        }
+                                        files.AddRange(Directory.GetFiles(directoryInfo.FullName, cssFile, SearchOption.AllDirectories));
                                     }
                                 }
                             }
@@ -147,26 +130,6 @@ namespace Cruncher.Web
 
                     combinedCSS = this.cssCruncher.Minify(stringBuilder.ToString());
                 }
-            }
-
-            return combinedCSS;
-        }
-
-        /// <summary>
-        /// Enables processing of HTTP Web requests by a custom HttpHandler that implements the <see cref="T:System.Web.IHttpHandler" /> interface.
-        /// </summary>
-        /// <param name="context">An <see cref="T:System.Web.HttpContext" /> object that provides references to the intrinsic server objects (for example, Request, Response, Session, and Server) used to service HTTP requests.</param>
-        public override void ProcessRequest(HttpContext context)
-        {
-            HttpRequest request = context.Request;
-            string path = request.QueryString["path"];
-            string key = path.ToMd5Fingerprint();
-            bool fallback;
-            bool minify = bool.TryParse(request.QueryString["minify"], out fallback);
-
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                string combinedCSS = this.ProcessCssCrunch(path, minify);
 
                 if (!string.IsNullOrWhiteSpace(combinedCSS))
                 {

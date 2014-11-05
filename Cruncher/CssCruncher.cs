@@ -19,7 +19,6 @@ namespace Cruncher
     using Cruncher.Compression;
     using Cruncher.Extensions;
     using Cruncher.Preprocessors;
-    using Cruncher.Helpers;
     #endregion
 
     /// <summary>
@@ -31,7 +30,7 @@ namespace Cruncher
         /// <summary>
         /// The regular expression to search files for.
         /// </summary>
-        private static readonly Regex ImportsRegex = new Regex(@"((?:@import\s*(url\([""']?)\s*(?<filename>.*\.\w+ss)(\s*[""']?)\s*\))((?<media>([^;@]+))?);)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.IgnorePatternWhitespace);
+        private static readonly Regex ImportsRegex = new Regex(@"((?:@import\s*(url\([""']?)\s*(?<filename>[^.]+\.\w+ss)(\s*[""']?)\s*\))((?<media>([^;@]+))?);)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.IgnorePatternWhitespace);
         #endregion
 
         #region Constructors
@@ -158,36 +157,22 @@ namespace Cruncher
                         mediaQuery = mediaQueries[0];
                     }
 
-                    string importedCss = string.Empty;
+                    string importedCSS = string.Empty;
 
                     if (!fileName.Contains("://"))
                     {
                         // Check and add the @import the match.
-                        FileInfo fileInfo = null;
-
-                        // Try to get the file by absolute/relative path
-                        if (!ResourceHelper.IsResourceFilenameOnly(fileName))
-                        {
-                            string cssFilePath = ResourceHelper.GetFilePath(fileName, Options.RootFolder);
-                            if (File.Exists(cssFilePath))
-                            {
-                                fileInfo = new FileInfo(cssFilePath);
-                            }
-                        }
-                        else
-                        {
-                            fileInfo = new FileInfo(Path.GetFullPath(Path.Combine(Options.RootFolder, fileName)));
-                        }
+                        FileInfo fileInfo = new FileInfo(Path.GetFullPath(Path.Combine(Options.RootFolder, fileName)));
 
                         // Read the file.
-                        if (fileInfo != null && fileInfo.Exists)
+                        if (fileInfo.Exists)
                         {
                             string file = fileInfo.FullName;
 
                             using (StreamReader reader = new StreamReader(file))
                             {
                                 // Parse the children.
-                                importedCss = mediaQuery != null
+                                importedCSS = mediaQuery != null
                                                   ? string.Format(
                                                       CultureInfo.InvariantCulture,
                                                       "@media {0}{{{1}{2}{1}}}",
@@ -198,11 +183,11 @@ namespace Cruncher
                             }
 
                             // Cache if applicable.
-                            this.AddFileMonitor(file, importedCss);
+                            this.AddFileMonitor(file, importedCSS);
                         }
 
                         // Replace the regex match with the full qualified css.
-                        css = css.Replace(match.Value, importedCss);
+                        css = css.Replace(match.Value, importedCSS);
                     }
                 }
             }

@@ -53,26 +53,21 @@ namespace Cruncher.Web
         }
 
         /// <summary>
-        /// Processes the JavaScript request using cruncher and returns the result.
+        /// Enables processing of HTTP Web requests by a custom HttpHandler that implements the <see cref="T:System.Web.IHttpHandler" /> interface.
         /// </summary>
-        /// <param name="path">
-        /// The path to the resources to crunch.
-        /// </param>
-        /// <param name="minify">
-        /// Whether to minify the output.
-        /// </param>
-        /// <returns>
-        /// The <see cref="string"/> representing the processed result.
-        /// </returns>
-        public string ProcessJavascriptCrunch(string path, bool minify)
+        /// <param name="context">An <see cref="T:System.Web.HttpContext" /> object that provides references to the intrinsic server objects (for example, Request, Response, Session, and Server) used to service HTTP requests.</param>
+        public override void ProcessRequest(HttpContext context)
         {
+            HttpRequest request = context.Request;
+            string path = request.QueryString["path"];
             string key = path.ToMd5Fingerprint();
-            string combinedJavaScript = string.Empty;
+            bool fallback;
+            bool minify = bool.TryParse(request.QueryString["minify"], out fallback);
 
             if (!string.IsNullOrWhiteSpace(path))
             {
                 minify = minify || CruncherConfiguration.Instance.MinifyJavaScript;
-                combinedJavaScript = (string)CacheManager.GetItem(key);
+                string combinedJavaScript = (string)CacheManager.GetItem(key);
 
                 if (string.IsNullOrWhiteSpace(combinedJavaScript))
                 {
@@ -90,6 +85,7 @@ namespace Cruncher.Web
 
                     cruncherOptions.CacheFiles = cruncherOptions.Minify;
                     cruncherOptions.CacheLength = cruncherOptions.Minify ? CruncherConfiguration.Instance.MaxCacheDays : 0;
+                    minify = cruncherOptions.Minify;
 
                     this.javaScriptCruncher = new JavaScriptCruncher(cruncherOptions);
 
@@ -99,32 +95,19 @@ namespace Cruncher.Web
                         // Local files.
                         if (PreprocessorManager.Instance.AllowedExtensionsRegex.IsMatch(javaScriptFile))
                         {
+                            // Get the path from the server.
+                            // Loop through each possible directory.
                             List<string> files = new List<string>();
 
-                            // Try to get the file using absolute/relative path
-                            if (!ResourceHelper.IsResourceFilenameOnly(javaScriptFile))
+                            foreach (string javaScriptFolder in CruncherConfiguration.Instance.JavaScriptPaths)
                             {
-                                string javaScriptFilePath = ResourceHelper.GetFilePath(javaScriptFile, cruncherOptions.RootFolder);
+                                if (!string.IsNullOrWhiteSpace(javaScriptFolder) && javaScriptFolder.Trim().StartsWith("~/"))
+                                {
+                                    DirectoryInfo directoryInfo = new DirectoryInfo(HttpContext.Current.Server.MapPath(javaScriptFolder));
 
-                                if (File.Exists(javaScriptFilePath))
-                                {
-                                    files.Add(javaScriptFilePath);
-                                }
-                            }
-                            else
-                            {
-                                // Get the path from the server.
-                                // Loop through each possible directory.
-                                foreach (string javaScriptFolder in CruncherConfiguration.Instance.JavaScriptPaths)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(javaScriptFolder) && javaScriptFolder.Trim().StartsWith("~/"))
+                                    if (directoryInfo.Exists)
                                     {
-                                        DirectoryInfo directoryInfo = new DirectoryInfo(HttpContext.Current.Server.MapPath(javaScriptFolder));
-
-                                        if (directoryInfo.Exists)
-                                        {
-                                            files.AddRange(Directory.GetFiles(directoryInfo.FullName, javaScriptFile, SearchOption.AllDirectories));
-                                        }
+                                        files.AddRange(Directory.GetFiles(directoryInfo.FullName, javaScriptFile, SearchOption.AllDirectories));
                                     }
                                 }
                             }
@@ -149,26 +132,6 @@ namespace Cruncher.Web
                     combinedJavaScript = this.javaScriptCruncher.Minify(stringBuilder.ToString())
                         .Replace(")(function(", ");(function(");
                 }
-            }
-
-            return combinedJavaScript;
-        }
-
-        /// <summary>
-        /// Enables processing of HTTP Web requests by a custom HttpHandler that implements the <see cref="T:System.Web.IHttpHandler" /> interface.
-        /// </summary>
-        /// <param name="context">An <see cref="T:System.Web.HttpContext" /> object that provides references to the intrinsic server objects (for example, Request, Response, Session, and Server) used to service HTTP requests.</param>
-        public override void ProcessRequest(HttpContext context)
-        {
-            HttpRequest request = context.Request;
-            string path = request.QueryString["path"];
-            string key = path.ToMd5Fingerprint();
-            bool fallback;
-            bool minify = bool.TryParse(request.QueryString["minify"], out fallback);
-
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                string combinedJavaScript = this.ProcessJavascriptCrunch(path, minify);
 
                 if (!string.IsNullOrWhiteSpace(combinedJavaScript))
                 {
